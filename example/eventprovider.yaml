@@ -1,0 +1,6 @@
+apiVersion: eventprovider.radu-matei.com/v1alpha1
+kind: EventProvider
+metadata:
+  name: my-event-provider
+spec:
+  providerName: events.myexternalprovider.com
