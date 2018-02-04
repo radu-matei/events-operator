@@ -1,7 +1,7 @@
 Kubernetes External Events Operator
 ===================================
 
-[![CircleCI](https://circleci.com/gh/radu-matei/events-operator.svg?style=svg&circle-token=14627daadeee06639298258d0a110d360a360d00)](https://circleci.com/gh/radu-matei/events-operator)
+[![CircleCI](https://circleci.com/gh/radu-matei/events-operator.svg?style=shield&circle-token=14627daadeee06639298258d0a110d360a360d00)](https://circleci.com/gh/radu-matei/events-operator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/radu-matei/events-operator)](https://goreportcard.com/report/github.com/radu-matei/events-operator)
 [![GoDoc](https://godoc.org/github.com/radu-matei/events-operator?status.svg)](https://godoc.org/github.com/radu-matei/events-operator)
 
