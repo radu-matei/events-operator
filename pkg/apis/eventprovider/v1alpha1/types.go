@@ -18,7 +18,7 @@ type EventProvider struct {
 
 // EventProviderSpec is the spec for an EventProvider resource
 type EventProviderSpec struct {
-	Name string `json:"name"`
+	ProviderName string `json:"providerName"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

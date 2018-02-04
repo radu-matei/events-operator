@@ -1,7 +1,7 @@
 package v1alpha1
 
 import (
-	"github.com/radu-matei/learning-operator/pkg/apis/example"
+	"github.com/radu-matei/events-operator/pkg/apis/eventprovider"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -10,7 +10,7 @@ import (
 
 var (
 	SchemeGroupVersion = schema.GroupVersion{
-		Group:   example.GroupName,
+		Group:   eventprovider.GroupName,
 		Version: "v1alpha1",
 	}
 )
