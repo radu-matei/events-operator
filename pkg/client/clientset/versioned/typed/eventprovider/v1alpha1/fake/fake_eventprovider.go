@@ -18,9 +18,9 @@ type FakeEventProviders struct {
 	ns   string
 }
 
-var eventprovidersResource = schema.GroupVersionResource{Group: "eventprovider.radu-matei.com", Version: "v1alpha1", Resource: "eventproviders"}
+var eventprovidersResource = schema.GroupVersionResource{Group: "eventprovider.k8s.io", Version: "v1alpha1", Resource: "eventproviders"}
 
-var eventprovidersKind = schema.GroupVersionKind{Group: "eventprovider.radu-matei.com", Version: "v1alpha1", Kind: "EventProvider"}
+var eventprovidersKind = schema.GroupVersionKind{Group: "eventprovider.k8s.io", Version: "v1alpha1", Kind: "EventProvider"}
 
 // Get takes name of the eventProvider, and returns the corresponding eventProvider object, and an error if there is any.
 func (c *FakeEventProviders) Get(name string, options v1.GetOptions) (result *v1alpha1.EventProvider, err error) {

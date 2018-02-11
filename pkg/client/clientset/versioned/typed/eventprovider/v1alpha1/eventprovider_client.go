@@ -14,7 +14,7 @@ type EventproviderV1alpha1Interface interface {
 	EventProvidersGetter
 }
 
-// EventproviderV1alpha1Client is used to interact with features provided by the eventprovider.radu-matei.com group.
+// EventproviderV1alpha1Client is used to interact with features provided by the eventprovider.k8s.io group.
 type EventproviderV1alpha1Client struct {
 	restClient rest.Interface
 }
