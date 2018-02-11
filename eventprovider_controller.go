@@ -4,19 +4,29 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/golang/glog"
+	"github.com/radu-matei/events-operator/pkg/apis/eventprovider/v1alpha1"
 	clientset "github.com/radu-matei/events-operator/pkg/client/clientset/versioned"
 	sscheme "github.com/radu-matei/events-operator/pkg/client/clientset/versioned/scheme"
 	informers "github.com/radu-matei/events-operator/pkg/client/informers/externalversions"
 	listers "github.com/radu-matei/events-operator/pkg/client/listers/eventprovider/v1alpha1"
 
+	eventgrid "github.com/radu-matei/events-operator/pkg/eventgrid"
+
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	appslisters "k8s.io/client-go/listers/apps/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -32,6 +42,12 @@ type Controller struct {
 	epLister listers.EventProviderLister
 	epSynced cache.InformerSynced
 
+	deploymentsLister appslisters.DeploymentLister
+	deploymentsSynced cache.InformerSynced
+
+	servicesLister corelisters.ServiceLister
+	servicesSynced cache.InformerSynced
+
 	queue    workqueue.RateLimitingInterface
 	recorder record.EventRecorder
 }
@@ -40,11 +56,15 @@ type Controller struct {
 func NewController(
 	kubeclientset kubernetes.Interface,
 	epclientset clientset.Interface,
+
 	kubeInformerFactory kubeinformers.SharedInformerFactory,
 	epInformerFactory informers.SharedInformerFactory) *Controller {
 
 	epInformer := epInformerFactory.Eventprovider().V1alpha1().EventProviders()
 	sscheme.AddToScheme(scheme.Scheme)
+
+	deploymentInformer := kubeInformerFactory.Apps().V1().Deployments()
+	serviceInformer := kubeInformerFactory.Core().V1().Services()
 
 	glog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -55,10 +75,18 @@ func NewController(
 	c := &Controller{
 		kubeclientset: kubeclientset,
 		epclientset:   epclientset,
-		epLister:      epInformer.Lister(),
-		epSynced:      epInformer.Informer().HasSynced,
-		queue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "EventProviders"),
-		recorder:      recorder,
+
+		epLister: epInformer.Lister(),
+		epSynced: epInformer.Informer().HasSynced,
+
+		deploymentsLister: deploymentInformer.Lister(),
+		deploymentsSynced: deploymentInformer.Informer().HasSynced,
+
+		servicesLister: serviceInformer.Lister(),
+		servicesSynced: serviceInformer.Informer().HasSynced,
+
+		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "EventProviders"),
+		recorder: recorder,
 	}
 
 	glog.Info("Setting up event handlers")
@@ -105,12 +133,12 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 
 	// Wait for the caches to be synced before starting workers
 	glog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.epSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.epSynced, c.deploymentsSynced, c.servicesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
 	glog.Info("Starting workers")
-	// Launch two workers to process Foo resources
+	// Launch two workers to process the resources
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, 5*time.Second, stopCh)
 	}
@@ -184,10 +212,122 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
-// with the current status of the resource.
+// converge the two
 func (c *Controller) syncHandler(key string) error {
 
-	fmt.Printf("received key: %v", key)
+	// Convert the namespace/name string into a distinct namespace and name
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		runtime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		return nil
+	}
+	fmt.Printf("\nReceived: namespace: %v, name: %v\n", namespace, name)
+
+	ep, err := c.epLister.EventProviders(namespace).Get(name)
+	if err != nil {
+		return fmt.Errorf("error getting resource: %v", err)
+	}
+	fmt.Printf("eventprovider: %v", ep)
+
+	switch ep.Spec.ProviderName {
+	case "eventgrid.azure.com":
+		if ep.Spec.EventType != "Microsoft.Storage" {
+			return fmt.Errorf("can only handle storage events")
+		}
+
+		// first check for deployment
+		deploymentName := fmt.Sprintf("%s-%s-deployment", ep.Name, ep.Spec.StorageAccount)
+		deployment, err := c.deploymentsLister.Deployments(ep.Namespace).Get(deploymentName)
+		// If the resource doesn't exist, we'll create it
+		if errors.IsNotFound(err) {
+			deployment, err = c.kubeclientset.AppsV1().Deployments(ep.Namespace).Create(newDeployment(ep, deploymentName))
+		}
+		fmt.Printf("deployment name: %v", deployment.Name)
+
+		// If an error occurs during Get/Create, we'll requeue the item so we can
+		// attempt processing again later. This could have been caused by a
+		// temporary network failure, or any other transient reason.
+		if err != nil {
+			return err
+		}
+
+		// check the service
+		serviceName := fmt.Sprintf("%s-%s-service", ep.Name, ep.Spec.StorageAccount)
+		service, err := c.servicesLister.Services(ep.Namespace).Get(serviceName)
+		// If the resource doesn't exist, we'll create it
+		if errors.IsNotFound(err) {
+			service, err = c.kubeclientset.CoreV1().Services(ep.Namespace).Create(newService(ep, serviceName, deploymentName))
+		}
+		fmt.Printf("service name: %v", service.Name)
+
+		// If an error occurs during Get/Create, we'll requeue the item so we can
+		// attempt processing again later. This could have been caused by a
+		// temporary network failure, or any other transient reason.
+		if err != nil {
+			return err
+		}
+
+		// check ingress
+
+		// check eventsubscription exists for given storage account
+		exists, err := eventgrid.CheckEventSubscription("", "")
+		if err != nil {
+			return fmt.Errorf("cannot check eventgrid subscription: %v", err)
+		}
+
+		if !exists {
+
+		}
+
+	default:
+		return fmt.Errorf("cannot handle provider %v", ep.Spec.ProviderName)
+	}
+
 	return nil
+}
+
+// newDeployment creates a new Deployment based on an eventprovider
+func newDeployment(ep *v1alpha1.EventProvider, name string) *appsv1.Deployment {
+
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: ep.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			// TODO - this is hardcoded
+			Replicas: to.Int32Ptr(2),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  name,
+							Image: ep.Spec.HostImage,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func newService(ep *v1alpha1.EventProvider, serviceName, deploymentName string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: serviceName,
+		},
+		Spec: corev1.ServiceSpec{
+
+			Selector: map[string]string{"app": deploymentName},
+			Ports: []corev1.ServicePort{
+				{
+					Name: "eventgrid-80",
+					Port: 80,
+					TargetPort: intstr.IntOrString{
+						IntVal: 80,
+					},
+				},
+			},
+		},
+	}
 }

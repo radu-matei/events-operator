@@ -1,0 +1,14 @@
+apiVersion: eventprovider.k8s.io/v1alpha1
+kind: EventProvider
+metadata:
+  name: blobcreated-eventgrid
+spec:
+  providerName: eventgrid.azure.com
+  eventType: Microsoft.Storage
+  storageAccount: eventgristorageaccount
+  resourceGroup: eventgridrg
+  # make sure this is in the correct format (to avoid enumerating all values here, just ref the secret name)
+  azureSecretName: azure-credentials
+  # make sure you have a TLS ingress controller - details in readme (hopefully)
+  host: eventgristorageaccount.providers.radu-matei.com
+  hostImage: radumatei/eventgrid-provider

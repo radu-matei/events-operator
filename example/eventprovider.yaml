@@ -1,6 +1,0 @@
-apiVersion: eventprovider.k8s.io/v1alpha1
-kind: EventProvider
-metadata:
-  name: my-event-provider
-spec:
-  providerName: events.myexternalprovider.com

@@ -18,7 +18,13 @@ type EventProvider struct {
 
 // EventProviderSpec is the spec for an EventProvider resource
 type EventProviderSpec struct {
-	ProviderName string `json:"providerName"`
+	ProviderName    string `json:"providerName"`
+	EventType       string `json:"eventType"`
+	StorageAccount  string `json:"storageAccount"`
+	ResourceGroup   string `json:"resourceGroup"`
+	AzureSecretName string `json:"azureSecretName"`
+	Host            string `json:"host"`
+	HostImage       string `json:"hostImage"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

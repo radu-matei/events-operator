@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,8 +31,6 @@ func main() {
 		os.Exit(1)
 	}()
 
-	flag.CommandLine.Parse([]string{})
-
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		glog.Fatalf("Error building kubeconfig: %s", err.Error())
@@ -60,6 +57,7 @@ func main() {
 	if err = controller.Run(2, stop); err != nil {
 		glog.Fatalf("Error running controller: %s", err.Error())
 	}
+
 }
 
 func getEnvVarOrExit(varName string) string {
