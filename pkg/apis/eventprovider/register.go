@@ -6,5 +6,5 @@ const (
 	// duplicate tne group name in every version package
 
 	// GroupName represents the unique fully-qualified API group name
-	GroupName = "eventprovider.radu-matei.com"
+	GroupName = "eventprovider.k8s.io"
 )
