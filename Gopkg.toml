@@ -22,3 +22,12 @@ required = ["k8s.io/code-generator/cmd/client-gen"]
 [[override]]
   name = "k8s.io/gengo"
   revision = "b58fc7edb82e0c6ffc9b8aef61813c7261b785d4"
+
+# Azure EventGrid dependencies
+[[constraint]]
+  name = "github.com/Azure/azure-sdk-for-go"
+  version = "^12.4.0-beta"
+
+[[constraint]]
+  name = "github.com/Azure/go-autorest"
+  version = "^9.6.0"

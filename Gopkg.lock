@@ -2,6 +2,18 @@
 
 
 [[projects]]
+  name = "github.com/Azure/azure-sdk-for-go"
+  packages = ["services/eventgrid/mgmt/2018-01-01/eventgrid"]
+  revision = "f111fc2fa3861c5fdced76cae4c9c71821969577"
+  version = "v12.4.0-beta"
+
+[[projects]]
+  name = "github.com/Azure/go-autorest"
+  packages = ["autorest","autorest/adal","autorest/azure","autorest/date","autorest/validation"]
+  revision = "fc3b03a2d2d1f43fad3007038bd16f044f870722"
+  version = "v9.10.0"
+
+[[projects]]
   name = "github.com/PuerkitoBio/purell"
   packages = ["."]
   revision = "0bcb03f4b4d0a9428594752bd2a3b9aa0a9d4bd4"
@@ -18,6 +30,12 @@
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
   version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/dgrijalva/jwt-go"
+  packages = ["."]
+  revision = "dbeaa9332f19a944acb5736b4456cfcc02140e29"
+  version = "v3.1.0"
 
 [[projects]]
   name = "github.com/emicklei/go-restful"
@@ -152,12 +170,6 @@
   version = "v2.0.1"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/radu-matei/learning-operator"
-  packages = ["pkg/apis/example"]
-  revision = "600323b1440d612be3eff6cc3e973813d02fb141"
-
-[[projects]]
   name = "github.com/spf13/pflag"
   packages = ["."]
   revision = "e57e3eeb33f795204c1ca35f56c44f83227c6e66"
@@ -237,6 +249,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "d1117ac54fb1053a7cdbb239d4173a59af09741afba097ff001fd7d11675b2a3"
+  inputs-digest = "37c5bf29eb90d3e8eea35fa91a0ef150041dc93380e1363bcc51aa9f817e6151"
   solver-name = "gps-cdcl"
   solver-version = 1
