@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +31,8 @@ func main() {
 		<-c
 		os.Exit(1)
 	}()
+
+	flag.CommandLine.Parse([]string{})
 
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
