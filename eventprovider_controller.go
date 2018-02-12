@@ -11,11 +11,11 @@ import (
 	sscheme "github.com/radu-matei/events-operator/pkg/client/clientset/versioned/scheme"
 	informers "github.com/radu-matei/events-operator/pkg/client/informers/externalversions"
 	listers "github.com/radu-matei/events-operator/pkg/client/listers/eventprovider/v1alpha1"
-
 	eventgrid "github.com/radu-matei/events-operator/pkg/eventgrid"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -27,6 +27,7 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	extensionlisters "k8s.io/client-go/listers/extensions/v1beta1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -48,6 +49,9 @@ type Controller struct {
 	servicesLister corelisters.ServiceLister
 	servicesSynced cache.InformerSynced
 
+	ingressLister extensionlisters.IngressLister
+	ingressSynced cache.InformerSynced
+
 	queue    workqueue.RateLimitingInterface
 	recorder record.EventRecorder
 }
@@ -65,6 +69,7 @@ func NewController(
 
 	deploymentInformer := kubeInformerFactory.Apps().V1().Deployments()
 	serviceInformer := kubeInformerFactory.Core().V1().Services()
+	ingressInformer := kubeInformerFactory.Extensions().V1beta1().Ingresses()
 
 	glog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
@@ -84,6 +89,9 @@ func NewController(
 
 		servicesLister: serviceInformer.Lister(),
 		servicesSynced: serviceInformer.Informer().HasSynced,
+
+		ingressLister: ingressInformer.Lister(),
+		ingressSynced: ingressInformer.Informer().HasSynced,
 
 		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "EventProviders"),
 		recorder: recorder,
@@ -235,6 +243,8 @@ func (c *Controller) syncHandler(key string) error {
 			return fmt.Errorf("can only handle storage events")
 		}
 
+		// TODO - also check deployment, service and ingress health
+
 		// first check for deployment
 		deploymentName := fmt.Sprintf("%s-%s-deployment", ep.Name, ep.Spec.StorageAccount)
 		deployment, err := c.deploymentsLister.Deployments(ep.Namespace).Get(deploymentName)
@@ -268,15 +278,31 @@ func (c *Controller) syncHandler(key string) error {
 		}
 
 		// check ingress
+		ingressName := fmt.Sprintf("%s-%s-ingress", ep.Name, ep.Spec.Host)
+		ingress, err := c.ingressLister.Ingresses(ep.Namespace).Get(ingressName)
+		if errors.IsNotFound(err) {
+			ingress, err = c.kubeclientset.ExtensionsV1beta1().Ingresses(ep.Namespace).Create(&v1beta1.Ingress{})
+		}
+		fmt.Printf("ingress name: %v", ingress.Name)
+
+		// If an error occurs during Get/Create, we'll requeue the item so we can
+		// attempt processing again later. This could have been caused by a
+		// temporary network failure, or any other transient reason.
+		if err != nil {
+			return err
+		}
 
 		// check eventsubscription exists for given storage account
 		exists, err := eventgrid.CheckEventSubscription("", "")
 		if err != nil {
 			return fmt.Errorf("cannot check eventgrid subscription: %v", err)
 		}
-
+		// if the eventsubscription does not exist, create it
 		if !exists {
-
+			err = eventgrid.CreateOrUpdateEventSubscription("", "", ep.Spec.StorageAccount, ep.Spec.Host)
+			if err != nil {
+				return err
+			}
 		}
 
 	default:
