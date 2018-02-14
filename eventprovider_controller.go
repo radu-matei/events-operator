@@ -148,7 +148,7 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	glog.Info("Starting workers")
 	// Launch two workers to process the resources
 	for i := 0; i < threadiness; i++ {
-		go wait.Until(c.runWorker, 5*time.Second, stopCh)
+		go wait.Until(c.runWorker, 30*time.Second, stopCh)
 	}
 
 	glog.Info("Started workers")
@@ -246,7 +246,7 @@ func (c *Controller) syncHandler(key string) error {
 		// TODO - also check deployment, service and ingress health
 
 		// first check for deployment
-		deploymentName := fmt.Sprintf("%s-%s-deployment", ep.Name, ep.Spec.StorageAccount)
+		deploymentName := fmt.Sprintf("%s%sdeployment", ep.Name, ep.Spec.StorageAccount)
 		deployment, err := c.deploymentsLister.Deployments(ep.Namespace).Get(deploymentName)
 		// If the resource doesn't exist, we'll create it
 		if errors.IsNotFound(err) {
@@ -258,11 +258,12 @@ func (c *Controller) syncHandler(key string) error {
 		// attempt processing again later. This could have been caused by a
 		// temporary network failure, or any other transient reason.
 		if err != nil {
+			fmt.Printf("%v", err)
 			return err
 		}
 
 		// check the service
-		serviceName := fmt.Sprintf("%s-%s-service", ep.Name, ep.Spec.StorageAccount)
+		serviceName := fmt.Sprintf("%s%sservice", ep.Name, ep.Spec.StorageAccount)
 		service, err := c.servicesLister.Services(ep.Namespace).Get(serviceName)
 		// If the resource doesn't exist, we'll create it
 		if errors.IsNotFound(err) {
@@ -274,14 +275,15 @@ func (c *Controller) syncHandler(key string) error {
 		// attempt processing again later. This could have been caused by a
 		// temporary network failure, or any other transient reason.
 		if err != nil {
+			fmt.Printf("%v", err)
 			return err
 		}
 
 		// check ingress
-		ingressName := fmt.Sprintf("%s-%s-ingress", ep.Name, ep.Spec.Host)
+		ingressName := fmt.Sprintf("%s%singress", ep.Name, ep.Spec.Host)
 		ingress, err := c.ingressLister.Ingresses(ep.Namespace).Get(ingressName)
 		if errors.IsNotFound(err) {
-			ingress, err = c.kubeclientset.ExtensionsV1beta1().Ingresses(ep.Namespace).Create(&v1beta1.Ingress{})
+			ingress, err = c.kubeclientset.ExtensionsV1beta1().Ingresses(ep.Namespace).Create(newIngress(ep, ingressName, serviceName))
 		}
 		fmt.Printf("ingress name: %v", ingress.Name)
 
@@ -289,18 +291,22 @@ func (c *Controller) syncHandler(key string) error {
 		// attempt processing again later. This could have been caused by a
 		// temporary network failure, or any other transient reason.
 		if err != nil {
+			fmt.Printf("%v", err)
 			return err
 		}
 
+		name := fmt.Sprintf("%seventsubscription", ep.Spec.StorageAccount)
+		tlsWebhook := fmt.Sprintf("https://%s", ep.Spec.Host)
 		// check eventsubscription exists for given storage account
-		exists, err := eventgrid.CheckEventSubscription("", "")
+		exists, err := eventgrid.CheckEventSubscription(name, ep.Spec.ResourceGroup, ep.Spec.StorageAccount, tlsWebhook)
 		if err != nil {
-			return fmt.Errorf("cannot check eventgrid subscription: %v", err)
+			fmt.Printf("cannot check eventgrid subscription: %v", err)
 		}
 		// if the eventsubscription does not exist, create it
 		if !exists {
-			err = eventgrid.CreateOrUpdateEventSubscription("", "", ep.Spec.StorageAccount, ep.Spec.Host)
+			err = eventgrid.CreateOrUpdateEventSubscription(ep.Spec.ResourceGroup, ep.Spec.StorageAccount, tlsWebhook)
 			if err != nil {
+				fmt.Printf("%v", err)
 				return err
 			}
 		}
@@ -317,24 +323,40 @@ func newDeployment(ep *v1alpha1.EventProvider, name string) *appsv1.Deployment {
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ep.Namespace,
+			Name: name,
 		},
 		Spec: appsv1.DeploymentSpec{
-			// TODO - this is hardcoded
-			Replicas: to.Int32Ptr(2),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "name",
+				},
+			},
+			Replicas: to.Int32Ptr(1),
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "name",
+					},
+				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
 							Name:  name,
 							Image: ep.Spec.HostImage,
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "http",
+									Protocol:      corev1.ProtocolTCP,
+									ContainerPort: 80,
+								},
+							},
 						},
 					},
 				},
 			},
 		},
 	}
+
 }
 
 func newService(ep *v1alpha1.EventProvider, serviceName, deploymentName string) *corev1.Service {
@@ -344,13 +366,57 @@ func newService(ep *v1alpha1.EventProvider, serviceName, deploymentName string) 
 		},
 		Spec: corev1.ServiceSpec{
 
-			Selector: map[string]string{"app": deploymentName},
+			Selector: map[string]string{"app": "name"},
 			Ports: []corev1.ServicePort{
 				{
 					Name: "eventgrid-80",
 					Port: 80,
 					TargetPort: intstr.IntOrString{
 						IntVal: 80,
+					},
+				},
+			},
+		},
+	}
+}
+
+func newIngress(ep *v1alpha1.EventProvider, ingressName, serviceName string) *v1beta1.Ingress {
+	annotations := map[string]string{"kubernetes.io/tls-acme": "true", "kubernetes.io/ingress.class": "nginx"}
+	return &v1beta1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        ingressName,
+			Annotations: annotations,
+		},
+		Spec: v1beta1.IngressSpec{
+			Backend: &v1beta1.IngressBackend{
+				ServiceName: serviceName,
+				ServicePort: intstr.IntOrString{
+					IntVal: 80,
+				},
+			},
+			TLS: []v1beta1.IngressTLS{
+				v1beta1.IngressTLS{
+					Hosts:      []string{ep.Spec.Host},
+					SecretName: ingressName,
+				},
+			},
+			Rules: []v1beta1.IngressRule{
+				v1beta1.IngressRule{
+					Host: ep.Spec.Host,
+					IngressRuleValue: v1beta1.IngressRuleValue{
+						HTTP: &v1beta1.HTTPIngressRuleValue{
+							Paths: []v1beta1.HTTPIngressPath{
+								v1beta1.HTTPIngressPath{
+									Path: "/",
+									Backend: v1beta1.IngressBackend{
+										ServiceName: serviceName,
+										ServicePort: intstr.IntOrString{
+											IntVal: 80,
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
