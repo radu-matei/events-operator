@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
+	"github.com/Azure/go-autorest/autorest/to"
 )
 
 var (
@@ -44,7 +45,10 @@ func getEventGridClient() (eventgrid.EventSubscriptionsClient, error) {
 }
 
 // CheckEventSubscription checks the existence of an event subscription
-func CheckEventSubscription(scope, name string) (bool, error) {
+func CheckEventSubscription(name, resourceGroup, storageAccount, tlsWebHook string) (bool, error) {
+
+	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", subscriptionID, resourceGroup, storageAccount)
+
 	c, err := getEventGridClient()
 	if err != nil {
 		log.Fatalf("cannot get eventgrid client: %v", err)
@@ -56,6 +60,42 @@ func CheckEventSubscription(scope, name string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// CreateOrUpdateEventSubscription creates an Azure Event Grid eventsubscription
+func CreateOrUpdateEventSubscription(resourceGroup, storageAccountName, tlsWebhook string) error {
+	c, err := getEventGridClient()
+	if err != nil {
+		log.Fatalf("cannot get eventgrid client: %v", err)
+	}
+
+	scope := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s", subscriptionID, resourceGroup, storageAccountName)
+	subscriptionName := fmt.Sprintf("%seventsubscription", storageAccountName)
+
+	subscription := eventgrid.EventSubscription{
+		EventSubscriptionProperties: &eventgrid.EventSubscriptionProperties{
+			Destination: eventgrid.WebHookEventSubscriptionDestination{
+				EndpointType: eventgrid.EndpointTypeWebHook,
+				WebHookEventSubscriptionDestinationProperties: &eventgrid.WebHookEventSubscriptionDestinationProperties{
+					EndpointURL: to.StringPtr(tlsWebhook),
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	f, err := c.CreateOrUpdate(ctx, scope, subscriptionName, subscription)
+	if err != nil {
+		return fmt.Errorf("cannot create event subscription: %v", err)
+	}
+
+	err = f.WaitForCompletion(ctx, c.Client)
+	if err != nil {
+		return fmt.Errorf("cannot get the subscription create or update future response: %v", err)
+	}
+
+	return nil
 }
 
 func getEnvVarOrExit(varName string) string {
